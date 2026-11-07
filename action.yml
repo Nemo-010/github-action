@@ -429,9 +429,22 @@ runs:
         fi
 
         if [[ -n "${RUN_SUDO}" ]]; then
-          # sudo-rs (Ubuntu 26.04) ignores -E, so keep the variables by name
-          keep_env=$(compgen -e | grep -E '^(BB_|COSIGN_|GH_|GITHUB_|ACTIONS_ID_TOKEN_REQUEST_|SIGSTORE_|RUST_LOG|CLICOLOR_FORCE$|DOCKER_HOST$|HOME$)' | paste -sd, -)
-          sudo --preserve-env="${keep_env}" bluebuild build -v "${BUILD_OPTS[@]}" "${RECIPE_PATH}"
+          # sudo-rs (the default sudo on Ubuntu 25.10 and newer) ignores -E, so
+          # name what a build needs for --preserve-env instead. PATH and the like
+          # are left out on purpose, so they stay under sudo's own control.
+          preserve_env=()
+          while IFS= read -r var; do
+            case "${var}" in
+              # utils/src/constants.rs of the CLI, plus the OIDC request variables
+              BB_*|COSIGN_*|GH_*|GITHUB_*|ACTIONS_ID_TOKEN_REQUEST_*|SIGSTORE_*|\
+              RUST_LOG*|CLICOLOR_FORCE|DOCKER_HOST|HOME) ;;
+              # proxy and CA settings for the registry, and scratch space
+              *_PROXY|*_proxy|SSL_CERT_*|TMPDIR) ;;
+              *) continue ;;
+            esac
+            preserve_env+=("${var}")
+          done <<< "$(compgen -e)"
+          sudo --preserve-env="$(IFS=,; echo "${preserve_env[*]}")" bluebuild build -v "${BUILD_OPTS[@]}" "${RECIPE_PATH}"
         else
           bluebuild build -v "${BUILD_OPTS[@]}" "${RECIPE_PATH}"
         fi
